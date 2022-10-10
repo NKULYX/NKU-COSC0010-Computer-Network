@@ -67,6 +67,13 @@ int main()
     myAddr.sin_addr.S_un.S_un_b.s_b2 = (myIP.ip_2);
     myAddr.sin_addr.S_un.S_un_b.s_b3 = (myIP.ip_3);
     myAddr.sin_addr.S_un.S_un_b.s_b4 = (myIP.ip_4);
+//    myAddr.sin_addr.S_un.S_addr = inet_addr("0.0.0.0");
+    // 获取 myAddr 中的 IP 地址
+//    printf("Your IP address is: %s\n", inet_ntoa(myAddr.sin_addr));
+
+
+
+
 
     // bind
     if (bind(mySocket, (SOCKADDR*)&myAddr, sizeof(SOCKADDR)) == SOCKET_ERROR) {
@@ -158,10 +165,10 @@ _Noreturn DWORD WINAPI receiveProc(LPVOID lparam)
 {
     struct Message msg;
     SOCKET sock = (SOCKET) (LPVOID) lparam;
-    SOCKADDR_IN dsetAddr;
-    int destAddrLen = sizeof(SOCKADDR_IN);
+    SOCKADDR_IN recAddr;
+    int recAddrLen = sizeof(SOCKADDR_IN);
     while(1) {
-        SOCKET socketConn = accept(sock, (SOCKADDR *)&dsetAddr, &destAddrLen);
+        SOCKET socketConn = accept(sock, (SOCKADDR *)&recAddr, &recAddrLen);
         int recLen = recv(socketConn, (char *)&msg, sizeof(struct Message), 0);
         if(recLen < 0){
             printf("Receive failed!\n");
