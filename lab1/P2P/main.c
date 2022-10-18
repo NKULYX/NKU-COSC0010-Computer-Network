@@ -68,7 +68,7 @@ int main()
     myAddr.sin_addr.S_un.S_un_b.s_b3 = (myIP.ip_3);
     myAddr.sin_addr.S_un.S_un_b.s_b4 = (myIP.ip_4);
 //    myAddr.sin_addr.S_un.S_addr = inet_addr("0.0.0.0");
-    // 获取 myAddr 中的 IP 地址
+////     获取 myAddr 中的 IP 地址
 //    printf("Your IP address is: %s\n", inet_ntoa(myAddr.sin_addr));
 
 
