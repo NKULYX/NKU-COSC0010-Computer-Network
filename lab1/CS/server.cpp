@@ -91,7 +91,7 @@ int main(){
 boolean shutdown() {
     std::string cmd;
     std::cin >> cmd;
-    if(cmd == "QUIT"){
+    if(cmd == "EXIT"){
         return false;
     }else{
         return true;
@@ -104,7 +104,6 @@ boolean shutdown() {
  * @return
  */
 [[noreturn]] DWORD WINAPI listenProc(LPVOID lparam){
-    struct Message msg;
     auto serverSock = (SOCKET) (LPVOID) lparam;
     int addressLen = sizeof(SOCKADDR_IN);
     while(true) {
@@ -121,21 +120,20 @@ boolean shutdown() {
  * @param fromAddress connection address
  */
 void processConnection(SOCKET socketConnect, SOCKADDR_IN fromAddress) {
-    struct ThreadParam threadParam{};
-    threadParam.socket = socketConnect;
-    threadParam.address = fromAddress;
-    HANDLE recvThreadHandle = CreateThread(NULL, (SIZE_T) NULL, recvProc, (void *) &threadParam, 0, 0);
+    auto* threadParam = new ThreadParam();
+    threadParam->socket = socketConnect;
+    threadParam->address = fromAddress;
+    HANDLE recvThreadHandle = CreateThread(NULL, (SIZE_T) NULL, recvProc, (LPVOID) threadParam, 0, 0);
     // get IP from the client connected
     struct IP fromIP;
-    fromIP.IPAddress = inet_ntoa(fromAddress.sin_addr);
+    strcpy(fromIP.IPAddress,inet_ntoa(fromAddress.sin_addr));
     fromIP.port = ntohs(fromAddress.sin_port);
     std::string userIP = IP2Str(fromIP);
     // insert the handler and connection into the map
     recvHandlers.insert({userIP, recvThreadHandle});
     connections.insert({userIP, socketConnect});
-    std::cout << "IP: " << userIP << " connected!" << std::endl;
+    std::cout << "[CONNECT_LOG] : IP: " << userIP << " connected!" << std::endl;
 }
-
 
 /**
  * Thread for receiving message
@@ -143,8 +141,7 @@ void processConnection(SOCKET socketConnect, SOCKADDR_IN fromAddress) {
  * @return
  */
 [[noreturn]] DWORD WINAPI recvProc(LPVOID lparam){
-    // 从lparam中获取ThreadParam中的值
-    auto threadParam = (struct ThreadParam *) lparam;
+    auto threadParam = (struct ThreadParam *) (LPVOID) lparam;
     auto socketConnect = threadParam->socket;
     auto fromAddress = threadParam->address;
     while(true) {
@@ -154,28 +151,30 @@ void processConnection(SOCKET socketConnect, SOCKADDR_IN fromAddress) {
             processMessage(msg, fromAddress);
         }else{
             std::string fromIP = inet_ntoa(fromAddress.sin_addr);
-            std::cout << "Receive from: " << fromIP << "failed" << std::endl;
+            std::cout << "[ERROR_LOG] : Receive from: " << fromIP << "failed" << std::endl;
         }
     }
 }
 
-
-
+/**
+ * process the message
+ * @param message
+ * @param fromAddress
+ */
 void processMessage(struct Message& message, SOCKADDR_IN fromAddress) {
     // get IP and port from the fromAddress and set it in the message
     std::string fromIP = std::string(inet_ntoa(fromAddress.sin_addr));
-    message.fromIP.IPAddress = fromIP;
-    message.fromIP.port = fromAddress.sin_port;
+    strcpy(message.fromIP.IPAddress, fromIP.c_str());
+    message.fromIP.port = ntohs(fromAddress.sin_port);
 
     // deal with different message type
     MessageType type = message.type;
     switch(type){
-        case MessageType::Verify: {
+        case MessageType::VERIFY: {
             userVerify(message);
             break;
         }
-        case MessageType::Text: {
-            broadcastMessage(message);
+        case MessageType::TEXT: {
             break;
         }
         case MessageType::EXIT: {
@@ -183,6 +182,8 @@ void processMessage(struct Message& message, SOCKADDR_IN fromAddress) {
             break;
         }
     }
+    printMessage(message);
+    broadcastMessage(message);
 }
 
 
@@ -194,7 +195,7 @@ void userVerify(struct Message& message){
     std::string username = message.fromUsername;
     std::string userIP = IP2Str(message.fromIP);
     usernameToIP.insert({username, userIP});
-    std::cout << "User: " << username << "from IP: " << userIP << "join in !" << std::endl;
+    std::cout << "[VERIFY_LOG] : User: " << username << "from IP: " << userIP << "join in !" << std::endl;
 }
 
 /**
@@ -204,17 +205,20 @@ void userVerify(struct Message& message){
 void broadcastMessage(struct Message& message){
     // get IP and send message to all users
     for(const auto& userInfo : usernameToIP){
+        if(userInfo.first == std::string(message.fromUsername)){
+            continue;
+        }
         std::string username = userInfo.first;
         std::string userIP = userInfo.second;
         struct IP toIP = str2IP(userIP);
         struct Message newMessage;
-        newMessage.type = MessageType::Text;
+        newMessage.type = message.type;
         newMessage.time = message.time;
-        newMessage.fromUsername = message.fromUsername;
+        strcpy(newMessage.fromUsername, message.fromUsername);
         newMessage.fromIP = message.fromIP;
-        newMessage.toUsername = username;
+        strcpy(newMessage.toUsername, username.c_str());
         newMessage.toIP = toIP;
-        newMessage.message = message.message;
+        strcpy(newMessage.message, message.message);
         SOCKET socket = connections[userIP];
         send(socket, (char *) &newMessage, sizeof(struct Message), 0);
     }
@@ -227,13 +231,12 @@ void broadcastMessage(struct Message& message){
 void userExit(struct Message& message){
     std::string username = message.fromUsername;
     std::string userIP = IP2Str(message.fromIP);
-    usernameToIP.erase(username);
-    connections.erase(userIP);
-    HANDLE recvThreadHandle = recvHandlers[userIP];
-    recvHandlers.erase(userIP);
-    CloseHandle(recvThreadHandle);
+    CloseHandle(recvHandlers[userIP]);
     closesocket(connections[userIP]);
-    std::cout << "User: " << username << "from IP: " << userIP << "exit !" << std::endl;
+    connections.erase(userIP);
+    recvHandlers.erase(userIP);
+    usernameToIP.erase(username);
+    std::cout << "[EXIT_LOG] : User: " << username << "from IP: " << userIP << "exit !" << std::endl;
 }
 
 /**

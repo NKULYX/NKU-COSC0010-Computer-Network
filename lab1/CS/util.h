@@ -10,54 +10,70 @@
 #include <ctime>
 #include <winsock.h>
 
+#define MAX_LEN 500
+
 struct IP{
-    std::string IPAddress;
-    unsigned short port;
+    char IPAddress[16]{};
+    unsigned short port{};
 };
 
 std::string IP2Str(const struct IP& ip){
-    std::string userIP = ip.IPAddress + ":" + std::to_string(ip.port);
+    std::string userIP = std::string(ip.IPAddress) + ":" + std::to_string(ip.port);
     return userIP;
 }
 
 struct IP str2IP(const std::string& str){
     struct IP ip;
     int pos = str.find(':');
-    ip.IPAddress = str.substr(0,pos);
+    std::string ipStr = str.substr(0,pos);
+    strcpy(ip.IPAddress,ipStr.c_str());
     ip.port = std::stoi(str.substr(pos+1));
     return ip;
 }
 
 enum class MessageType{
-    Verify,
-    Text,
+    VERIFY,
+    TEXT,
     EXIT
 };
 
 struct Message{
-    MessageType type;
-    time_t time;
-    std::string fromUsername;
-    struct IP fromIP;
-    std::string toUsername;
-    struct IP toIP;
-    std::string message;
+    MessageType type{};
+    time_t time{};
+    char fromUsername[15]{};
+    struct IP fromIP{};
+    char toUsername[15]{};
+    struct IP toIP{};
+    char message[MAX_LEN]{};
 };
 
-//void printMessage(struct Message message)
-//{
-//    printf("=========================== Recv ===========================\n");
-//    char timeBuff[50];
-//    ctime_s(timeBuff, 50, &message.time);
-//    printf("From IPv4 address : %d.%d.%d.%d:%d\n",message.fromIP.ip_1,message.fromIP.ip_2,message.fromIP.ip_3,message.fromIP.ip_4,message.fromIP.port);
-//    printf("Send time : %s", timeBuff);
-//    time_t recTime;
-//    time(&recTime);
-//    ctime_s(timeBuff, 50, &recTime);
-//    printf("Recv time : %s", timeBuff);
-//    printf("Message : %s\n", message.message);
-//    printf("=========================== Recv ===========================\n\n");
-//    printf("=========================== Send ===========================\n");
-//}
+void printMessage(const struct Message& message)
+{
+    MessageType type = message.type;
+    switch(type){
+        case MessageType::VERIFY:{
+            std::cout << "=========================== VERIFY ===========================" << std::endl;
+            std::cout << "Time: " << message.time << std::endl;
+            std::cout << "User: " << message.fromUsername << " from IP: " << IP2Str(message.fromIP) << " join in !" << std::endl;
+            std::cout << "=========================== VERIFY ===========================" << std::endl;
+            break;
+        }
+        case MessageType::TEXT: {
+            std::cout << "============================ TEXT ============================" << std::endl;
+            std::cout << "Time: " << message.time << std::endl;
+            std::cout << "From: " << message.fromUsername << " IP: " << IP2Str(message.fromIP) << std::endl;
+            std::cout << "Message: " << message.message << std::endl;
+            std::cout << "============================ TEXT ============================" << std::endl;
+            break;
+        }
+        case MessageType::EXIT: {
+            std::cout << "============================ EXIT ============================" << std::endl;
+            std::cout << "Time: " << message.time << std::endl;
+            std::cout << "User: " << message.fromUsername << " from IP: " << IP2Str(message.fromIP) << " exit !" << std::endl;
+            std::cout << "============================ EXIT ============================" << std::endl;
+            break;
+        }
+    }
+}
 
 #endif //CS_UTIL_H
