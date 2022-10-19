@@ -6,6 +6,8 @@ set(CMAKE_EXE_LINKER_FLAGS -static)
 
 link_libraries(ws2_32 wsock32)
 
-add_executable(CS main.cpp)
-add_executable(server server.cpp util.h)
-add_executable(client client.cpp util.h)
+add_executable(server CS/server.cpp CS/util.h)
+add_executable(client CS/client.cpp CS/util.h)
+add_executable(P2P_client P2P/client.c)
+
+

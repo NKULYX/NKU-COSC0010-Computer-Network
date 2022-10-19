@@ -9,9 +9,9 @@ SOCKADDR_IN clientAddress;
 SOCKADDR_IN serverAddress;
 unsigned short clientPort;
 std::string userName;
-std::string serverIP = "127.0.0.1";
+std::string serverIP;
 
-HANDLE recvThreadHandle;
+bool online = true;
 
 
 [[noreturn]] DWORD WINAPI recvProc(LPVOID lparam);
@@ -62,7 +62,7 @@ int main(){
     // set server IP address
     serverAddress.sin_family = AF_INET;
     std::cout << "Please Input server IP: ";
-//    std::cin >> serverIP;
+    std::cin >> serverIP;
     serverAddress.sin_addr.S_un.S_addr = inet_addr(serverIP.c_str());
     serverAddress.sin_port = htons(10086);
 
@@ -75,12 +75,14 @@ int main(){
     }
 
 
-    recvThreadHandle = CreateThread(NULL, (SIZE_T) NULL, recvProc, (LPVOID) clientSocket, 0, 0);
+    HANDLE recvThreadHandle = CreateThread(NULL, (SIZE_T) NULL, recvProc, (LPVOID) clientSocket, 0, 0);
 
     sendUserVerify();
 
     while(sendProc());
 
+    CloseHandle(recvThreadHandle);
+    closesocket(clientSocket);
     WSACleanup();
 
 }
@@ -92,17 +94,21 @@ int main(){
  */
 [[noreturn]] DWORD WINAPI recvProc(LPVOID lparam){
     auto socket = (SOCKET) (LPVOID) lparam;
-    while(true) {
+    while(online) {
         struct Message msg;
         int recvLen = recv(socket, (char *) &msg, sizeof(struct Message), 0);
         if(recvLen > 0){
             printMessage(msg);
+            std::cout << "============================ SEND ============================" << std::endl;
         }else{
             std::cout << "Receive failed" << std::endl;
         }
     }
 }
 
+/**
+ * send user verify message to server
+ */
 void sendUserVerify(){
     struct Message msg;
     msg.type = MessageType::VERIFY;
@@ -121,12 +127,14 @@ void sendUserVerify(){
  * @return
  */
 bool sendProc(){
+    std::cout << "============================ SEND ============================" << std::endl;
     struct Message msg;
     msg.time = time(nullptr);
     strcpy(msg.fromUsername, userName.c_str());
     std::cin >> msg.message;
     if(std::string(msg.message) == "EXIT"){
         msg.type = MessageType::EXIT;
+        online = false;
     } else{
         msg.type = MessageType::TEXT;
     }
@@ -136,10 +144,9 @@ bool sendProc(){
     }else{
         std::cout << "Send failed" << std::endl;
     }
+    std::cout << "============================ SEND ============================" << std::endl;
     if(std::string(msg.message) == "EXIT"){
-        Sleep(2000);
-        CloseHandle(recvThreadHandle);
-        closesocket(clientSocket);
+        Sleep(500);
         return false;
     } else{
         return true;

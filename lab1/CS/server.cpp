@@ -132,7 +132,7 @@ void processConnection(SOCKET socketConnect, SOCKADDR_IN fromAddress) {
     // insert the handler and connection into the map
     recvHandlers.insert({userIP, recvThreadHandle});
     connections.insert({userIP, socketConnect});
-    std::cout << "[CONNECT_LOG] : IP: " << userIP << " connected!" << std::endl;
+    std::cout << "[CONNECT_LOG] : {IP : " << userIP << "} connected!" << std::endl;
 }
 
 /**
@@ -149,9 +149,12 @@ void processConnection(SOCKET socketConnect, SOCKADDR_IN fromAddress) {
         int recvLen = recv(socketConnect, (char *) &msg, sizeof(struct Message), 0);
         if(recvLen > 0){
             processMessage(msg, fromAddress);
+            if(msg.type == MessageType::EXIT){
+                break;
+            }
         }else{
             std::string fromIP = inet_ntoa(fromAddress.sin_addr);
-            std::cout << "[ERROR_LOG] : Receive from: " << fromIP << "failed" << std::endl;
+            std::cout << "[ERROR_LOG] : Receive from: " << fromIP << " failed" << std::endl;
         }
     }
 }
@@ -195,7 +198,7 @@ void userVerify(struct Message& message){
     std::string username = message.fromUsername;
     std::string userIP = IP2Str(message.fromIP);
     usernameToIP.insert({username, userIP});
-    std::cout << "[VERIFY_LOG] : User: " << username << "from IP: " << userIP << "join in !" << std::endl;
+    std::cout << "[VERIFY_LOG] : {User : " << username << "} from {IP : " << userIP << "} join in !" << std::endl;
 }
 
 /**
@@ -236,7 +239,7 @@ void userExit(struct Message& message){
     connections.erase(userIP);
     recvHandlers.erase(userIP);
     usernameToIP.erase(username);
-    std::cout << "[EXIT_LOG] : User: " << username << "from IP: " << userIP << "exit !" << std::endl;
+    std::cout << "[EXIT_LOG] : {User : " << username << "} from {IP : " << userIP << "} exit !" << std::endl;
 }
 
 /**

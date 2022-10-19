@@ -50,26 +50,33 @@ struct Message{
 void printMessage(const struct Message& message)
 {
     MessageType type = message.type;
+    char timeBuff[32]{0};
+    ctime_s(timeBuff, 50, &message.time);
     switch(type){
         case MessageType::VERIFY:{
             std::cout << "=========================== VERIFY ===========================" << std::endl;
-            std::cout << "Time: " << message.time << std::endl;
-            std::cout << "User: " << message.fromUsername << " from IP: " << IP2Str(message.fromIP) << " join in !" << std::endl;
+            std::cout << "Time: " << timeBuff;
+            std::cout << "User: " << message.fromUsername << std::endl;
+            std::cout << "IP: " << IP2Str(message.fromIP) << std::endl;
+            std::cout << "Join in !" << std::endl;
             std::cout << "=========================== VERIFY ===========================" << std::endl;
             break;
         }
         case MessageType::TEXT: {
             std::cout << "============================ TEXT ============================" << std::endl;
-            std::cout << "Time: " << message.time << std::endl;
-            std::cout << "From: " << message.fromUsername << " IP: " << IP2Str(message.fromIP) << std::endl;
+            std::cout << "Time: " << timeBuff;
+            std::cout << "From: " << message.fromUsername << std::endl;
+            std::cout << "IP: " << IP2Str(message.fromIP) << std::endl;
             std::cout << "Message: " << message.message << std::endl;
             std::cout << "============================ TEXT ============================" << std::endl;
             break;
         }
         case MessageType::EXIT: {
             std::cout << "============================ EXIT ============================" << std::endl;
-            std::cout << "Time: " << message.time << std::endl;
-            std::cout << "User: " << message.fromUsername << " from IP: " << IP2Str(message.fromIP) << " exit !" << std::endl;
+            std::cout << "Time: " << timeBuff;
+            std::cout << "User: " << message.fromUsername << std::endl;
+            std::cout << "IP: " << IP2Str(message.fromIP) << std::endl;
+            std::cout << "Exit !" << std::endl;
             std::cout << "============================ EXIT ============================" << std::endl;
             break;
         }
