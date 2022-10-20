@@ -39,6 +39,7 @@ enum class MessageType{
 
 struct Message{
     MessageType type{};
+    bool toAll{};
     time_t time{};
     char fromUsername[15]{};
     struct IP fromIP{};
@@ -67,6 +68,12 @@ void printMessage(const struct Message& message)
             std::cout << "Time: " << timeBuff;
             std::cout << "From: " << message.fromUsername << std::endl;
             std::cout << "IP: " << IP2Str(message.fromIP) << std::endl;
+            if(message.toAll){
+                std::cout << "To: All" << std::endl;
+            } else{
+                std::cout << "To: " << message.toUsername << std::endl;
+                std::cout << "IP: " << IP2Str(message.toIP) << std::endl;
+            }
             std::cout << "Message: " << message.message << std::endl;
             std::cout << "============================ TEXT ============================" << std::endl;
             break;

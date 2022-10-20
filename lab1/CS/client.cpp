@@ -113,6 +113,7 @@ void sendUserVerify(){
     struct Message msg;
     msg.type = MessageType::VERIFY;
     msg.time = time(nullptr);
+    msg.toAll = true;
     strcpy(msg.fromUsername, userName.c_str());
     int sendLen = send(clientSocket, (char *) &msg, sizeof(struct Message), 0);
     if(sendLen > 0){
@@ -131,12 +132,23 @@ bool sendProc(){
     struct Message msg;
     msg.time = time(nullptr);
     strcpy(msg.fromUsername, userName.c_str());
+    std::string option;
     std::cin >> msg.message;
     if(std::string(msg.message) == "EXIT"){
         msg.type = MessageType::EXIT;
+        msg.toAll = true;
         online = false;
     } else{
         msg.type = MessageType::TEXT;
+        std::cin >> option;
+        if(option == "-a"){
+            msg.toAll = true;
+        } else{
+            msg.toAll = false;
+            // 删掉option的前两个字符
+            option = option.erase(0, 3);
+            strcpy(msg.toUsername, option.c_str());
+        }
     }
     int sendLen = send(clientSocket, (char *) &msg, sizeof(struct Message), 0);
     if(sendLen > 0){

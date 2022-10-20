@@ -170,6 +170,16 @@ void processMessage(struct Message& message, SOCKADDR_IN fromAddress) {
     strcpy(message.fromIP.IPAddress, fromIP.c_str());
     message.fromIP.port = ntohs(fromAddress.sin_port);
 
+    if(!message.toAll){
+        std::string toUsername = message.toUsername;
+        if(usernameToIP.find(toUsername)==usernameToIP.end()){
+            std::cout << "[ERROR_LOG] : {User : " << toUsername << "} not found!" << std::endl;
+            return;
+        }
+        std::string toIP = usernameToIP[toUsername];
+        message.toIP = str2IP(toIP);
+    }
+
     // deal with different message type
     MessageType type = message.type;
     switch(type){
@@ -206,6 +216,18 @@ void userVerify(struct Message& message){
  * @param message
  */
 void broadcastMessage(struct Message& message){
+    if(!message.toAll){
+        struct Message newMessage{};
+        newMessage.type = MessageType::TEXT;
+        newMessage.time = message.time;
+        strcpy(newMessage.fromUsername, message.fromUsername);
+        newMessage.fromIP = message.fromIP;
+        strcpy(newMessage.toUsername, message.toUsername);
+        newMessage.toIP = message.toIP;
+        SOCKET socketConnect = connections[IP2Str(message.toIP)];
+        send(socketConnect, (char *)&message, sizeof(struct Message), 0);
+        return ;
+    }
     // get IP and send message to all users
     for(const auto& userInfo : usernameToIP){
         if(userInfo.first == std::string(message.fromUsername)){
