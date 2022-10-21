@@ -75,7 +75,7 @@ int main(){
 
     HANDLE listenThreadHandle = CreateThread(NULL, (SIZE_T) NULL, listenProc, (LPVOID) serverSocket, 0, 0);
 
-    while(!shutdown());
+    while(shutdown());
 
     cleanupResources();
     CloseHandle(listenThreadHandle);

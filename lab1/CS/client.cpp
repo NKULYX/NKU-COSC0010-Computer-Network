@@ -14,11 +14,15 @@ std::string serverIP;
 bool online = true;
 
 
+void printHelp();
 [[noreturn]] DWORD WINAPI recvProc(LPVOID lparam);
 void sendUserVerify();
 bool sendProc();
 
 int main(){
+
+    printHelp();
+
     WSADATA wsaData;
     int iResult;
 
@@ -71,7 +75,7 @@ int main(){
         std::cout << "Connect failed! Failure code: " << WSAGetLastError() << std::endl;
     }
     else {
-        std::cout << "Connect success!" << std::endl;
+        std::cout << "Connect to server success!" << std::endl;
     }
 
 
@@ -85,6 +89,14 @@ int main(){
     closesocket(clientSocket);
     WSACleanup();
 
+}
+
+void printHelp(){
+    std::cout << "============================ HELP ============================" << std::endl;
+    std::cout << "Input \"EXIT\" to exit" << std::endl;
+    std::cout << "[message] -a ==> send message to all users" << std::endl;
+    std::cout << "[message] -n=[username] ==> send message to specific user" << std::endl;
+    std::cout << "============================ HELP ============================" << std::endl;
 }
 
 /**
@@ -145,7 +157,6 @@ bool sendProc(){
             msg.toAll = true;
         } else{
             msg.toAll = false;
-            // 删掉option的前两个字符
             option = option.erase(0, 3);
             strcpy(msg.toUsername, option.c_str());
         }
