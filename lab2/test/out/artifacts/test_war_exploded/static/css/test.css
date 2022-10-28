@@ -1,0 +1,16 @@
+/*<h1>标签居中展示*/
+h1{
+    text-align: center;
+}
+
+img.logo{
+    display: block;
+    margin: 0 auto;
+    width: 100px;
+    height: 100px;
+}
+
+div {
+    align-content: center;
+    text-align: center;
+}
