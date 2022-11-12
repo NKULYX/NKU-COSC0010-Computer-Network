@@ -28,4 +28,6 @@ int main(){
     std::cout << sendMsg.checksumValid(&sendHeader) << std::endl;
     std::cout << recvMsg.getLen() << std::endl;
     std::cout << recvMsg.checksumValid(&sendHeader) << std::endl;
+
+    std::cout << (2048 & 0x1FFF) << std::endl;
 }

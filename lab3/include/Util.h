@@ -11,6 +11,7 @@
 #include <winsock.h>
 
 const int MSS = 1024;
+const int LOSS_RATE = 1;
 
 struct FileDescriptor {
     char fileName[20];
@@ -47,10 +48,10 @@ struct Message {
     unsigned short checksum{};
     char data[MSS]{};
     void setLen(short int len){
-        flagAndLength |= (len & 0x04FF);
+        flagAndLength |= (len & 0x07FF);
     }
     unsigned short getLen() const {
-        return flagAndLength & 0x04FF;
+        return flagAndLength & 0x07FF;
     }
     void setACK() {
         flagAndLength |= 0x1000;
@@ -68,13 +69,19 @@ struct Message {
         flagAndLength |= 0x4000;
     };
     bool isFIN() const {
-        return flagAndLength & 0x400;
+        return flagAndLength & 0x4000;
     };
     void setRep() {
         flagAndLength |= 0x8000;
     };
     bool isRep() const {
         return flagAndLength & 0x8000;
+    };
+    void setFHD() {
+        flagAndLength |= 0x0800;
+    };
+    bool isFHD() const {
+        return flagAndLength & 0x0800;
     };
     void setData(char* data);
     void setChecksum(struct PseudoHeader *pseudoHeader);
@@ -90,17 +97,18 @@ struct PseudoHeader {
 };
 
 void Message::setData(char* sourceData) {
-    strcpy(this->data, sourceData);
+    memset(data, 0, MSS);
+    memcpy(data, sourceData, getLen());
 }
 
 void Message::setChecksum(struct PseudoHeader *pseudoHeader) {
     this->checksum = 0;
-    int sum = 0;
+    unsigned long long int sum = 0;
     for (int i = 0; i < sizeof(struct PseudoHeader) / 2; i++) {
-        sum += ((short int *) pseudoHeader)[i];
+        sum += ((unsigned short int *) pseudoHeader)[i];
     }
     for (int i = 0; i < sizeof(struct Message) / 2; i++) {
-        sum += ((short int *) this)[i];
+        sum += ((unsigned short int *) this)[i];
     }
     while (sum >> 16) {
         sum = (sum & 0xffff) + (sum >> 16);
@@ -109,19 +117,32 @@ void Message::setChecksum(struct PseudoHeader *pseudoHeader) {
 }
 
 bool Message::checksumValid(struct PseudoHeader *pseudoHeader){
-    int sum = 0;
+    unsigned long long int sum = 0;
     for (int i = 0; i < sizeof(struct PseudoHeader) / 2; i++) {
-        sum += ((short int *) pseudoHeader)[i];
+        sum += ((unsigned short int *) pseudoHeader)[i];
     }
     for (int i = 0; i < sizeof(struct Message) / 2; i++) {
-        sum += ((short int *) this)[i];
+        sum += ((unsigned short int *) this)[i];
     }
     while (sum >> 16) {
         sum = (sum & 0xffff) + (sum >> 16);
     }
-    return sum == 0xffff;
+    return sum == 0x000ffff;
 }
 
+void printMessage(struct Message message) {
+    std::cout << "{ Package "
+            << "[SYN:" << message.isSYN() << "] "
+            << "[ACK:" << message.isACK() << "] "
+            << "[FIN:" << message.isFIN() << "] "
+            << "[ack:" << message.ack << "] "
+            << "[seq:" << message.seq << "] "
+            << "[Len:" << message.getLen() << "] }"
+            << std::endl;
+}
 
+bool randomLoss() {
+    return rand() % 100 < LOSS_RATE;
+}
 
 #endif //LAB3_UTIL_H

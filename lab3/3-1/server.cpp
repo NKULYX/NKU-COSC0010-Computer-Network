@@ -11,17 +11,20 @@ SOCKET serverSocket;
 SOCKADDR_IN serverAddress;
 std::string serverIP = "127.0.0.1";
 unsigned short serverPort = 8888;
-SOCKET clientSocket;
 SOCKADDR_IN clientAddress;
+std::string clientIP = "127.0.0.1";
+unsigned short clientPort = 8088;
 
-struct PseudoHeader pseudoHeader{};
-const int RTO = 500;
+struct PseudoHeader sendPseudoHeader{};
+struct PseudoHeader recvPseudoHeader{};
+const int RTO = 50;
 bool ACK_FLAG = false;
 int CURRENT_SEQ = 0;
 
 std::string fileDir = "../test/files";
 
 bool serverInit();
+
 bool establishConnection(SOCKET socket);
 void sendFiles();
 void sendFile(struct FileDescriptor file);
@@ -48,27 +51,22 @@ int main(){
 
     // wait for client connection
     std::cout << "Waiting for client connection..." << std::endl;
-    int clientAddressLength = sizeof(SOCKADDR);
-    clientSocket = accept(serverSocket, (SOCKADDR*)&clientAddress, &clientAddressLength);
-
-    // initialize pseudo pseudoHeader
-    pseudoHeader.sourceIP = clientAddress.sin_addr.S_un.S_addr;
-    pseudoHeader.destinationIP = serverAddress.sin_addr.S_un.S_addr;
 
     // establish connection via three times handshake
-    while(!establishConnection(clientSocket)) {
-        std::cout << "Establishment failed! Retry in 1 seconds..." << std::endl;
-        Sleep(1000);
-    }
+//    while(!establishConnection(clientSocket)) {
+//        std::cout << "Establishment failed! Retry in 1 seconds..." << std::endl;
+//        Sleep(1000);
+//    }
+
+    Sleep(1000);
 
     // send files
     sendFiles();
 
     // destroy connection
-    destroyConnection();
+//    destroyConnection();
 
     // cleanup resources
-    closesocket(clientSocket);
     closesocket(serverSocket);
     WSACleanup();
 
@@ -84,8 +82,19 @@ bool serverInit() {
     serverAddress.sin_addr.S_un.S_addr = inet_addr(serverIP.c_str());
     serverAddress.sin_port = htons(serverPort);
 
+    // set client address
+    clientAddress.sin_family = AF_INET;
+    clientAddress.sin_addr.S_un.S_addr = inet_addr(clientIP.c_str());
+    clientAddress.sin_port = htons(clientPort);
+
+    // initialize pseudo sendPseudoHeader
+    sendPseudoHeader.sourceIP = serverAddress.sin_addr.S_un.S_addr;
+    sendPseudoHeader.destinationIP = clientAddress.sin_addr.S_un.S_addr;
+    recvPseudoHeader.sourceIP = clientAddress.sin_addr.S_un.S_addr;
+    recvPseudoHeader.destinationIP = serverAddress.sin_addr.S_un.S_addr;
+
     // create client socket
-    serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+    serverSocket = socket(AF_INET, SOCK_DGRAM, 0);
     if (serverSocket == INVALID_SOCKET) {
         std::cout << "Create socket failed! Failure code: " << WSAGetLastError() << std::endl;
         return false;
@@ -103,15 +112,6 @@ bool serverInit() {
         std::cout << "Bind success!" << std::endl;
     }
 
-    // begin listening
-    if(listen(serverSocket, 5) < 0){
-        std::cout << "Listen failed!" << std::endl;
-        return false;
-    }
-    else {
-        std::cout << "Listen success!" << std::endl;
-    }
-
     return true;
 
 }
@@ -126,53 +126,74 @@ bool establishConnection(SOCKET socket) {
     // wait for the first handshake
     struct Message recvBuffer{};
     int recvLength = recv(socket, (char*) &recvBuffer, sizeof(struct Message), 0);
-    if(recvLength > 0 && recvBuffer.checksumValid(&pseudoHeader) && recvBuffer.isSYN()){
-        std::cout << "First handshake received!" << std::endl;
+    if(recvLength > 0 && recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.isSYN()){
+        std::cout << "[First handshake] ";
+        printMessage(recvBuffer);
     }
     else {
-        std::cout << "First handshake failed!" << std::endl;
+        if(recvLength <= 0){
+            std::cout << "[Error] : First Handshake Received Failed!" << std::endl;
+        }
+        if(!recvBuffer.checksumValid(&recvPseudoHeader)){
+            std::cout << "[Error] : First Handshake Checksum Invalid!" << std::endl;
+        }
         return false;
     }
     // send second handshake
     struct Message sendBuffer{
         serverPort,
-        clientAddress.sin_port,
+        clientPort,
         0,
         recvBuffer.seq
     };
     sendBuffer.setSYN();
     sendBuffer.setACK();
     sendBuffer.setLen(0);
-    sendBuffer.setChecksum(&pseudoHeader);
+    sendBuffer.setChecksum(&sendPseudoHeader);
     send(socket, (char*) &sendBuffer, sizeof(struct Message), 0);
+    std::cout << "[Second handshake] ";
+    printMessage(sendBuffer);
     // create a new thread to re-send when timeout
     ACK_FLAG = false;
     int waitTime = 0;
     std::thread resendThread([&](){
+        // if ACK_FLAG is not set, re-send
         while(!ACK_FLAG){
             while(waitTime < RTO) {
                 Sleep(10);
                 waitTime += 10;
             }
-            send(socket, (char*) &sendBuffer, sizeof(struct Message), 0);
+            if(!ACK_FLAG) {
+                std::cout << "[Timeout] : Re-send Second Handshake" << std::endl;
+                sendBuffer.setRep();
+                send(socket, (char*) &sendBuffer, sizeof(struct Message), 0);
+            }
         }
     });
     resendThread.detach();
-    // wait for ACK
+    // wait for ACK for second handshake
     while(true) {
         recvLength = recv(socket, (char*) &recvBuffer, sizeof(struct Message), 0);
-        if(recvLength > 0 && recvBuffer.checksumValid(&pseudoHeader) && recvBuffer.isACK() && recvBuffer.ack == 0){
-            std::cout << "Second handshake received!" << std::endl;
+        if(recvLength > 0 && recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.isACK() && recvBuffer.ack == 0){
+            std::cout << "[Third handshake] ";
+            printMessage(recvBuffer);
             ACK_FLAG = true;
             break;
         }
         else {
-            std::cout << "Second handshake receive failed! Re-send!" << std::endl;
+            if(recvLength <= 0){
+                std::cout << "[Error] : Third Handshake Received Failed!" << std::endl;
+            }
+            if(!recvBuffer.checksumValid(&recvPseudoHeader)){
+                std::cout << "[Error] : Third Handshake Checksum Invalid!" << std::endl;
+            }
+            std::cout << "[Re-send] : Re-send Second Handshake" << std::endl;
+            sendBuffer.setRep();
             send(socket, (char*) &sendBuffer, sizeof(struct Message), 0);
             waitTime = 0;
         }
     }
-    std::cout << "Three times handshake finished! Connection established!" << std::endl;
+    std::cout << "[Three times handshake finished! Connection established!]" << std::endl;
     return true;
 }
 
@@ -201,35 +222,39 @@ void sendFile(struct FileDescriptor file) {
     // send the description of the file containing the file name and size
     struct Message sendBuffer{
             serverPort,
-            clientAddress.sin_port,
+            clientPort,
             0,
             CURRENT_SEQ
     };
     sendBuffer.setACK();
+    sendBuffer.setFHD();
     sendBuffer.setLen(sizeof(struct FileDescriptor));
     sendBuffer.setData((char*) &file);
-    sendBuffer.setChecksum(&pseudoHeader);
+    sendBuffer.setChecksum(&sendPseudoHeader);
     sendPackage(sendBuffer);
     // send file content
-    std::ifstream fileStream(fileDir + file.fileName, std::ios::binary);
+    std::ifstream fileStream(fileDir + "/" + file.fileName, std::ios::binary | std::ios::app);
     // calculate the segment of file aligned by MSS
     int segments = ceil(((double) file.fileSize) / MSS);
     // send file content by segments
+    int len = file.fileSize;
     for(int i = 0; i < segments; i++) {
         // read file content
         char fileContent[MSS];
-        fileStream.read(fileContent, MSS);
+        fileStream.read(fileContent, fmin(len,MSS));
         // send file content
         struct Message fileBuffer{
                 serverPort,
-                clientAddress.sin_port,
+                clientPort,
                 0,
                 CURRENT_SEQ
         };
         fileBuffer.setACK();
-        fileBuffer.setLen(fileStream.gcount());
+        fileBuffer.setLen(fmin(len,MSS));
         fileBuffer.setData(fileContent);
-        fileBuffer.setChecksum(&pseudoHeader);
+        fileBuffer.setChecksum(&sendPseudoHeader);
+        len -= MSS;
+        std::cout << "[Seg " << i << " in " << segments << "]" << std::endl;
         sendPackage(fileBuffer);
     }
 }
@@ -239,39 +264,59 @@ void sendFile(struct FileDescriptor file) {
  * @param message message in package
  */
 void sendPackage(struct Message message) {
-    send(clientSocket, (char*) &message, sizeof(struct Message), 0);
-    std::cout << "Send package: [SEQ:" << message.seq << "] [ACK:" << message.ack << "] [Len:" << message.getLen() << "]" << std::endl;
-    // create a new thread to re-send when timeout
-    ACK_FLAG = false;
+    // send package
+    if(!randomLoss()){
+        sendto(serverSocket, (char*) &message, sizeof(struct Message), 0, (struct sockaddr*) &clientAddress, sizeof(SOCKADDR));
+    }
+    printMessage(message);
+    // enter wait for ACK state
+    // first start timer for timeout re-send
     int waitTime = 0;
+    ACK_FLAG = false;
     std::thread resendThread([&](){
+        // if ACK_FLAG is not set, re-send
         while(!ACK_FLAG){
-            while(waitTime < RTO){
-                Sleep(10);
-                waitTime += 10;
+            while(waitTime < RTO && !ACK_FLAG) {
+                Sleep(1);
+                waitTime += 1;
             }
-            send(clientSocket, (char*) &message, sizeof(struct Message), 0);
+            if(!ACK_FLAG) {
+                std::cout << "[Timeout] : Re-send Package" << std::endl;
+                if(!randomLoss()){
+                    sendto(serverSocket, (char*) &message, sizeof(struct Message), 0, (struct sockaddr*) &clientAddress, sizeof(SOCKADDR_IN));
+                }
+                printMessage(message);
+            }
         }
     });
-    resendThread.detach();
-    // wait for ACK
-    struct Message recvBuffer{};
+    // then wait for ACK
     while(true) {
-        int recvLength = recv(clientSocket, (char*) &recvBuffer, sizeof(struct Message), 0);
-        if(recvLength > 0 && recvBuffer.checksumValid(&pseudoHeader)
-            && recvBuffer.isACK() && recvBuffer.ack == CURRENT_SEQ){
-            std::cout << "Client reply [ACK:" << recvBuffer.ack << "] success!" << std::endl;
-            ACK_FLAG = true;
-            break;
-        }
-        else {
-            std::cout << "Client reply ACK false! Re-send [SEQ:" << message.seq << "] [ACK:" << message.ack << "]" << std::endl;
-            send(clientSocket, (char*) &message, sizeof(struct Message), 0);
-            // reset wait time
-            waitTime = 0;
+        struct Message recvBuffer;
+        int clientAddressLength = sizeof(SOCKADDR);
+        int recvLength = recvfrom(serverSocket, (char *) &recvBuffer, sizeof(struct Message), 0, (struct sockaddr *) &clientAddress, &clientAddressLength);
+        // recvLength > 0 means receive success
+        if (recvLength > 0) {
+            printMessage(recvBuffer);
+            // check checksum and ack
+            // only if checksum is valid and ack is for the current seq that the package is sent and received correctly
+            if (recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.ack == CURRENT_SEQ) {
+                ACK_FLAG = true;
+                resendThread.join();
+                // update current seq
+                CURRENT_SEQ = (CURRENT_SEQ + 1) % 2;
+                // current send task finish
+                std::cout << "[ACK] : Package (SEQ:" << recvBuffer.ack << ") sent successfully!" << std::endl;
+                break;
+            }
+            // if ckecksum is not valid or ack is not for current seq, that means the packet sent just now was failed
+            // then wait for timeout to re-send the package
+            else {
+                std::cout << "[RE] : Client received failed. Wait for timeout to re-send" << std::endl;
+            }
+        } else {
+            std::cout << "[ERROR] : Package received from socket failed!" << std::endl;
         }
     }
-    CURRENT_SEQ = ~CURRENT_SEQ;
 }
 
 /**
@@ -281,31 +326,31 @@ void sendPackage(struct Message message) {
 void destroyConnection() {
     struct Message finMsg{
             serverPort,
-            clientAddress.sin_port,
+            clientPort,
             0,
             CURRENT_SEQ
     };
     finMsg.setFIN();
     finMsg.setACK();
     finMsg.setLen(0);
-    finMsg.setChecksum(&pseudoHeader);
+    finMsg.setChecksum(&sendPseudoHeader);
     sendPackage(finMsg);
     // wait for client FIN package
     struct Message recvBuffer{};
     while(true) {
-        int recvLength = recv(clientSocket, (char*) &recvBuffer, sizeof(struct Message), 0);
-        if(recvLength > 0 && recvBuffer.checksumValid(&pseudoHeader)
+        int recvLength = recv(serverSocket, (char*) &recvBuffer, sizeof(struct Message), 0);
+        if(recvLength > 0 && recvBuffer.checksumValid(&recvPseudoHeader)
            && recvBuffer.isACK() && recvBuffer.isFIN()){
             std::cout << "Client send FIN package!" << std::endl;
             struct Message replyFin{
                     serverPort,
-                    clientAddress.sin_port,
+                    clientPort,
                     0,
                     CURRENT_SEQ
             };
             replyFin.setACK();
             replyFin.setLen(0);
-            replyFin.setChecksum(&pseudoHeader);
+            replyFin.setChecksum(&sendPseudoHeader);
             sendPackage(replyFin);
             break;
         }
