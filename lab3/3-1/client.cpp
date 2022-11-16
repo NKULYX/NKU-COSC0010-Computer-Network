@@ -19,18 +19,20 @@ unsigned short serverPort = 8888;
 
 struct PseudoHeader sendPseudoHeader{};
 struct PseudoHeader recvPseudoHeader{};
-const int RTO = 500;
 bool ACK_FLAG = false;
 int CURRENT_SEQ = 0;
+int exitTime = 0;
+bool beginWait = false;
 
 std::string fileDir = "../test/3-1";
 
 bool initConnection();
-bool establishConnection();
+[[noreturn]] void beginRecv();
+void waitExit();
 void sendPackage(struct Message message);
 void sendACK(int ackNum);
-
-[[noreturn]] void beginRecv();
+void sendACKSYN(int ackNum);
+void sendACKFIN(int ackNum);
 
 int main() {
     WSADATA wsaData;
@@ -49,12 +51,6 @@ int main() {
         std::cout << "Connection failed! Retry in 1 seconds..." << std::endl;
         Sleep(1000);
     }
-
-    // establish connection via three times handshake
-//    while(!establishConnection()) {
-//        std::cout << "Establishment failed! Retry in 1 seconds..." << std::endl;
-//        Sleep(1000);
-//    }
 
     beginRecv();
 
@@ -103,12 +99,6 @@ bool initConnection() {
     return true;
 }
 
-bool establishConnection() {
-
-}
-
-
-
 [[noreturn]] void beginRecv() {
     // receive message from server
     struct Message recvBuffer{};
@@ -123,29 +113,47 @@ bool establishConnection() {
         if(recvLength > 0) {
             printMessage(recvBuffer);
             if(recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.seq == CURRENT_SEQ) {
-                // if message contains file header
-                if(recvBuffer.isFHD()) {
-                    struct FileDescriptor fileDescriptor{};
-                    memcpy(&fileDescriptor, recvBuffer.data, sizeof(struct FileDescriptor));
-                    std::cout << "Receive file header: [Name:" << fileDescriptor.fileName << "] [Size:" << fileDescriptor.fileSize << "]" << std::endl;
-                    fileSize = fileDescriptor.fileSize;
-                    filename = fileDir + "/" + fileDescriptor.fileName;
-                    currentSize = 0;
-                    // create file
-                    file.open(filename, std::ios::out | std::ios::binary);
-                }
-                else {
-                    // write to file
-                    file.write(recvBuffer.data, recvBuffer.getLen());
-                    currentSize += recvBuffer.getLen();
-                    if(currentSize >= fileSize){
-                        std::cout << "File receive success!" << filename << std::endl;
-                        file.close();
+                // if message is SYN
+                if(recvBuffer.isSYN()) {
+                    if(!randomLoss()) {
+                        sendACKSYN(recvBuffer.seq);
                     }
                 }
-                // send ACK to server
-                if(!randomLoss()){
-                    sendACK(recvBuffer.seq);
+                // if message is FIN
+                else if(recvBuffer.isFIN()) {
+                    if(!randomLoss()) {
+                        sendACKFIN(recvBuffer.seq);
+                    }
+                    exitTime = 0;
+                    waitExit();
+                }
+                // if message contains data
+                else {
+                    // if message contains file header
+                    if(recvBuffer.isFHD()) {
+                        struct FileDescriptor fileDescriptor{};
+                        memcpy(&fileDescriptor, recvBuffer.data, sizeof(struct FileDescriptor));
+                        std::cout << "Receive file header: [Name:" << fileDescriptor.fileName << "] [Size:"
+                                  << fileDescriptor.fileSize << "]" << std::endl;
+                        fileSize = fileDescriptor.fileSize;
+                        filename = fileDir + "/" + fileDescriptor.fileName;
+                        currentSize = 0;
+                        // create file
+                        file.open(filename, std::ios::out | std::ios::binary);
+                    }
+                    else {
+                        // write to file
+                        file.write(recvBuffer.data, recvBuffer.getLen());
+                        currentSize += recvBuffer.getLen();
+                        if(currentSize >= fileSize){
+                            std::cout << "File receive success!" << filename << std::endl;
+                            file.close();
+                        }
+                    }
+                    // send ACK to server
+                    if(!randomLoss()){
+                        sendACK(recvBuffer.seq);
+                    }
                 }
                 // update current seq
                 CURRENT_SEQ = (CURRENT_SEQ + 1) % 2;
@@ -154,10 +162,33 @@ bool establishConnection() {
             // need to send last ACK again
             else {
                 if(!randomLoss()) {
-                    sendACK((CURRENT_SEQ + 1) % 2);
+                    if(recvBuffer.isSYN()) {
+                        sendACKSYN((CURRENT_SEQ + 1) % 2);
+                    }
+                    else {
+                        sendACK((CURRENT_SEQ + 1) % 2);
+                    }
                 }
             }
         }
+    }
+}
+
+void waitExit() {
+    if(!beginWait){
+        beginWait = true;
+        std::thread thread([&](){
+            while(true) {
+                Sleep(1);
+                exitTime++;
+                if(exitTime >= 2 * RTO) {
+                    // cleanup resources
+                    closesocket(clientSocket);
+                    WSACleanup();
+                    exit(0);
+                }
+            }
+        });
     }
 }
 
@@ -170,6 +201,36 @@ void sendACK(int ackNum) {
             CURRENT_SEQ
     };
     sendBuffer.setACK();
+    sendBuffer.setLen(0);
+    sendBuffer.setChecksum(&sendPseudoHeader);
+    sendto(clientSocket, (char*) &sendBuffer, sizeof(struct Message), 0, (struct sockaddr *) &serverAddress, sizeof(SOCKADDR));
+}
+
+void sendACKSYN(int ackNum) {
+    // send ACK&SYN to server
+    struct Message sendBuffer{
+            clientPort,
+            serverPort,
+            ackNum,
+            CURRENT_SEQ
+    };
+    sendBuffer.setACK();
+    sendBuffer.setSYN();
+    sendBuffer.setLen(0);
+    sendBuffer.setChecksum(&sendPseudoHeader);
+    sendto(clientSocket, (char*) &sendBuffer, sizeof(struct Message), 0, (struct sockaddr *) &serverAddress, sizeof(SOCKADDR));
+}
+
+void sendACKFIN(int ackNum) {
+    // send ACK&FIN to server
+    struct Message sendBuffer{
+            clientPort,
+            serverPort,
+            ackNum,
+            CURRENT_SEQ
+    };
+    sendBuffer.setACK();
+    sendBuffer.setFIN();
     sendBuffer.setLen(0);
     sendBuffer.setChecksum(&sendPseudoHeader);
     sendto(clientSocket, (char*) &sendBuffer, sizeof(struct Message), 0, (struct sockaddr *) &serverAddress, sizeof(SOCKADDR));

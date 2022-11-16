@@ -12,6 +12,7 @@
 
 const int MSS = 1024;
 const int LOSS_RATE = 1;
+const int RTO = 50;
 
 struct FileDescriptor {
     char fileName[20];
