@@ -14,4 +14,6 @@ add_executable(ThreadTest test/ThreadTest.cpp)
 add_executable(GetFilesTest test/GetFilesTest.cpp)
 add_executable(client_3_1 3-1/client.cpp)
 add_executable(server_3_1 3-1/server.cpp)
+add_executable(client_3_2 3-2/client.cpp)
+add_executable(server_3_2 3-2/server.cpp)
 
