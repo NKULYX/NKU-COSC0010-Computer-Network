@@ -18,7 +18,7 @@ unsigned short clientPort = 8088;
 struct PseudoHeader sendPseudoHeader{};
 struct PseudoHeader recvPseudoHeader{};
 bool ACK_FLAG = false;
-int CURRENT_SEQ = 0;
+int EXPECT_SEQ = 0;
 
 std::string fileDir = "../test/tmp";
 
@@ -115,10 +115,10 @@ bool serverInit() {
  */
 void establishConnection() {
     struct Message msgSYN{
-        serverPort,
-        clientPort,
-        0,
-        CURRENT_SEQ
+            serverPort,
+            clientPort,
+            0,
+            EXPECT_SEQ
     };
     msgSYN.setSYN();
     msgSYN.setLen(0);
@@ -154,7 +154,7 @@ void sendFile(struct FileDescriptor file) {
             serverPort,
             clientPort,
             0,
-            CURRENT_SEQ
+            EXPECT_SEQ
     };
     sendBuffer.setACK();
     sendBuffer.setFHD();
@@ -177,7 +177,7 @@ void sendFile(struct FileDescriptor file) {
                 serverPort,
                 clientPort,
                 0,
-                CURRENT_SEQ
+                EXPECT_SEQ
         };
         fileBuffer.setACK();
         fileBuffer.setLen(fmin(len,MSS));
@@ -229,11 +229,11 @@ void sendPackage(struct Message message) {
             printMessage(recvBuffer);
             // check checksum and ack
             // only if checksum is valid and ack is for the current seq that the package is sent and received correctly
-            if (recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.ack == CURRENT_SEQ) {
+            if (recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.ack == EXPECT_SEQ) {
                 ACK_FLAG = true;
                 resendThread.join();
                 // update current seq
-                CURRENT_SEQ = (CURRENT_SEQ + 1) % 2;
+                EXPECT_SEQ = (EXPECT_SEQ + 1) % 2;
                 // current send task finish
                 std::cout << "[ACK] : Package (SEQ:" << recvBuffer.ack << ") sent successfully!" << std::endl;
                 break;
@@ -258,7 +258,7 @@ void destroyConnection() {
             serverPort,
             clientPort,
             0,
-            CURRENT_SEQ
+            EXPECT_SEQ
     };
     msgSYN.setFIN();
     msgSYN.setLen(0);

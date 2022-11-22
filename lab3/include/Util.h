@@ -8,11 +8,16 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <queue>
+#include <thread>
+#include <mutex>
 #include <winsock.h>
 
 const int MSS = 1024;
 const int LOSS_RATE = 1;
 const int RTO = 50;
+
+std::mutex m;
 
 struct FileDescriptor {
     char fileName[20];
@@ -142,8 +147,74 @@ void printMessage(struct Message message) {
             << std::endl;
 }
 
+std::string message2string(struct Message message) {
+    std::string str = "{ Package "
+            + std::string("[SYN:") + std::to_string(message.isSYN()) + "] "
+            + std::string("[ACK:") + std::to_string(message.isACK()) + "] "
+            + std::string("[FIN:") + std::to_string(message.isFIN()) + "] "
+            + std::string("[ack:") + std::to_string(message.ack) + "] "
+            + std::string("[seq:") + std::to_string(message.seq) + "] "
+            + std::string("[Len:") + std::to_string(message.getLen()) + "] }";
+    return str;
+}
+
 bool randomLoss() {
     return rand() % 100 < LOSS_RATE;
 }
+
+class Timer {
+    bool isStart;
+    int timeCnt = 0;
+    int timeOut = RTO;
+public:
+    Timer() {
+        isStart = false;
+    }
+    void start() {
+        isStart = true;
+        timeCnt = 0;
+    }
+    void stop() {
+        isStart = false;
+    }
+    bool isTimeout() {
+        if (isStart) {
+            Sleep(1);
+            timeCnt++;
+            if (timeCnt >= timeOut) {
+                timeCnt = 0;
+                return true;
+            }
+        }
+        return false;
+    }
+};
+
+class Logger {
+    std::queue<std::string> logQueue;
+    bool working;
+public:
+    Logger() {
+        working = true;
+        std::thread logThread([&]() {
+           while(working) {
+                if (!logQueue.empty()) {
+                     std::cout << logQueue.front() << std::endl;
+                     std::lock_guard<std::mutex> lockGuard(m);
+                     logQueue.pop();
+                }
+           }
+        });
+        logThread.detach();
+    }
+    void stop() {
+        while(!logQueue.empty()) {}
+        working = false;
+    }
+    void addLog(const std::string& log) {
+        std::lock_guard<std::mutex> lockGuard(m);
+        logQueue.push(log);
+    }
+};
 
 #endif //LAB3_UTIL_H

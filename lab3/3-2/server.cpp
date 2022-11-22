@@ -3,9 +3,9 @@
 //
 
 #include <Util.h>
-#include <thread>
 #include <fstream>
 #include <cmath>
+#include <deque>
 
 SOCKET serverSocket;
 SOCKADDR_IN serverAddress;
@@ -17,13 +17,22 @@ unsigned short clientPort = 8088;
 
 struct PseudoHeader sendPseudoHeader{};
 struct PseudoHeader recvPseudoHeader{};
+
+std::deque<struct Message> sendBuffer;
 bool ACK_FLAG = false;
-int CURRENT_SEQ = 0;
+int baseSeq = 0;
+int nextSeq = 0;
+const int WINDOW_SIZE = 16;
+Timer timer;
+Logger logger;
+std::mutex bufferMutex;
 
 std::string fileDir = "../test/tmp";
 
 bool serverInit();
 void establishConnection();
+void beginRecv();
+void beginTimeOut();
 void sendFiles();
 void sendFile(struct FileDescriptor file);
 void sendPackage(struct Message message);
@@ -31,6 +40,7 @@ void destroyConnection();
 
 
 int main(){
+
     WSADATA wsaData;
     int iResult;
 
@@ -49,6 +59,12 @@ int main(){
 
     // wait for client connection
     std::cout << "Waiting for client connection..." << std::endl;
+
+    // begin to receive packets from client
+    beginRecv();
+
+    // begin to check timeout to re-send
+    beginTimeOut();
 
     // establish connection via three times handshake
     establishConnection();
@@ -110,21 +126,97 @@ bool serverInit() {
 }
 
 /**
+ * begin to receive from client
+ */
+void beginRecv() {
+    std::thread recvThread([&](){
+        while(true) {
+            struct Message recvBuffer;
+            int clientAddressLength = sizeof(SOCKADDR);
+            int recvLength = recvfrom(serverSocket, (char *) &recvBuffer, sizeof(struct Message), 0, (struct sockaddr *) &clientAddress, &clientAddressLength);
+            // if receive buffer is valid
+            if(recvLength > 0) {
+                if(recvBuffer.checksumValid(&recvPseudoHeader)) {
+                    logger.addLog("[RECV] : " + message2string(recvBuffer));
+                    if(recvBuffer.isSYN() && recvBuffer.isACK()) {
+                        logger.addLog("[LOG] Connection established!");
+                    }
+                    else if(recvBuffer.isFIN() && recvBuffer.isACK()) {
+                        logger.addLog("[LOG] Connection destroyed!");
+                    }
+                    else {
+                        std::string log = "[ACK] : Package (SEQ to : " + std::to_string(recvBuffer.seq) + ") sent successfully!";
+                        logger.addLog(log);
+                    }
+                    // update send buffer
+                    for(int i = baseSeq; i <= recvBuffer.ack; i++) {
+                        std::lock_guard<std::mutex> lockGuard(bufferMutex);
+                        sendBuffer.pop_front();
+                    }
+                    if(recvBuffer.isFIN()) {
+                        return;
+                    }
+                    // update baseSeq
+                    baseSeq = recvBuffer.ack + 1 > baseSeq ? recvBuffer.ack + 1 : baseSeq;
+                    // check whether to reset timer
+                    if(baseSeq == nextSeq) {
+                        timer.stop();
+                    }
+                    else {
+                        timer.start();
+                    }
+                }
+                else {
+                    logger.addLog("[LOG] Checksum invalid! Wait for timeout!");
+                }
+            }
+            else {
+                logger.addLog("[ERROR] : Package received from socket failed!");
+            }
+        }
+    });
+    recvThread.detach();
+}
+
+/**
+ * begin to check timeout
+ */
+void beginTimeOut() {
+    std::thread resendThread([&](){
+        while(true) {
+            while(!timer.isTimeout()) {}
+            std::string log = "[TIMEOUT] : Package (SEQ from : " + std::to_string(baseSeq) + " to : " + std::to_string(nextSeq - 1) + ") re-send!";
+            logger.addLog(log);
+            int i = baseSeq;
+            do {
+                std::lock_guard<std::mutex> lockGuard(bufferMutex);
+                struct Message message = sendBuffer[i-baseSeq];
+                sendto(serverSocket, (char*) &message, sizeof(struct Message), 0, (struct sockaddr*) &clientAddress, sizeof(SOCKADDR));
+                logger.addLog("[RE-SEND] : " + message2string(message));
+            } while(++i < nextSeq);
+        }
+    });
+    resendThread.detach();
+}
+
+/**
  * Establishes connection with client
  * server first send SYN package and wait for ACK
  */
 void establishConnection() {
     struct Message msgSYN{
-        serverPort,
-        clientPort,
-        0,
-        CURRENT_SEQ
+            serverPort,
+            clientPort,
+            0,
+            baseSeq
     };
     msgSYN.setSYN();
     msgSYN.setLen(0);
     msgSYN.setChecksum(&sendPseudoHeader);
     sendPackage(msgSYN);
-    std::cout << "[LOG] Connection established!" << std::endl;
+    while(!sendBuffer.empty()) {
+        // wait for send buffer to be flushed
+    }
 }
 
 /**
@@ -134,13 +226,15 @@ void sendFiles() {
     // read files in "test/files" directory
     std::vector<FileDescriptor> files = getAllFiles(fileDir);
     for(auto file : files){
-        std::cout << "Send file: " << file.fileName << " size: " << file.fileSize << " bytes begin!" << std::endl;
+        std::string log = "[LOG] : Sending file: " + std::string(file.fileName) + " size: " + std::to_string(file.fileSize) + " bytes begin!";
+        logger.addLog(log);
         // count the time
         auto start = std::chrono::steady_clock::now();
         sendFile(file);
         auto end = std::chrono::steady_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        std::cout << "Send file: " << file.fileName << " size: " << file.fileSize << " bytes finish in " << duration << "ms !" << std::endl;
+        log = "[LOG] : Send file: " + std::string(file.fileName) + " size: " + std::to_string(file.fileSize) + " bytes finish in " + std::to_string(duration) + " ms";
+        logger.addLog(log);
     }
 }
 
@@ -150,18 +244,18 @@ void sendFiles() {
  */
 void sendFile(struct FileDescriptor file) {
     // send the description of the file containing the file name and size
-    struct Message sendBuffer{
+    struct Message msg{
             serverPort,
             clientPort,
             0,
-            CURRENT_SEQ
+            nextSeq
     };
-    sendBuffer.setACK();
-    sendBuffer.setFHD();
-    sendBuffer.setLen(sizeof(struct FileDescriptor));
-    sendBuffer.setData((char*) &file);
-    sendBuffer.setChecksum(&sendPseudoHeader);
-    sendPackage(sendBuffer);
+    msg.setACK();
+    msg.setFHD();
+    msg.setLen(sizeof(struct FileDescriptor));
+    msg.setData((char*) &file);
+    msg.setChecksum(&sendPseudoHeader);
+    sendPackage(msg);
     // send file content
     std::ifstream fileStream(fileDir + "/" + file.fileName, std::ios::binary | std::ios::app);
     // calculate the segment of file aligned by MSS
@@ -177,14 +271,18 @@ void sendFile(struct FileDescriptor file) {
                 serverPort,
                 clientPort,
                 0,
-                CURRENT_SEQ
+                nextSeq
         };
         fileBuffer.setACK();
         fileBuffer.setLen(fmin(len,MSS));
         fileBuffer.setData(fileContent);
         fileBuffer.setChecksum(&sendPseudoHeader);
         len -= MSS;
-        std::cout << "[Seg " << i << " in " << segments << "]" << std::endl;
+        std::string log = "[Seg " + std::to_string(i) + " in " + std::to_string(segments) + "]";
+        logger.addLog(log);
+        while(sendBuffer.size() >= WINDOW_SIZE) {
+            // wait for the space in send buffer
+        }
         sendPackage(fileBuffer);
     }
 }
@@ -194,59 +292,20 @@ void sendFile(struct FileDescriptor file) {
  * @param message message in package
  */
 void sendPackage(struct Message message) {
+    // add to the send buffer
+    std::lock_guard<std::mutex> lockGuard(bufferMutex);
+    sendBuffer.push_back(message);
     // send package
     if(!randomLoss()){
         sendto(serverSocket, (char*) &message, sizeof(struct Message), 0, (struct sockaddr*) &clientAddress, sizeof(SOCKADDR));
     }
-    printMessage(message);
-    // enter wait for ACK state
-    // first start timer for timeout re-send
-    int waitTime = 0;
-    ACK_FLAG = false;
-    std::thread resendThread([&](){
-        // if ACK_FLAG is not set, re-send
-        while(!ACK_FLAG){
-            while(waitTime < RTO && !ACK_FLAG) {
-                Sleep(1);
-                waitTime += 1;
-            }
-            if(!ACK_FLAG) {
-                std::cout << "[Timeout] : Re-send Package" << std::endl;
-                if(!randomLoss()){
-                    sendto(serverSocket, (char*) &message, sizeof(struct Message), 0, (struct sockaddr*) &clientAddress, sizeof(SOCKADDR_IN));
-                }
-                printMessage(message);
-            }
-        }
-    });
-    // then wait for ACK
-    while(true) {
-        struct Message recvBuffer;
-        int clientAddressLength = sizeof(SOCKADDR);
-        int recvLength = recvfrom(serverSocket, (char *) &recvBuffer, sizeof(struct Message), 0, (struct sockaddr *) &clientAddress, &clientAddressLength);
-        // recvLength > 0 means receive success
-        if (recvLength > 0) {
-            printMessage(recvBuffer);
-            // check checksum and ack
-            // only if checksum is valid and ack is for the current seq that the package is sent and received correctly
-            if (recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.ack == CURRENT_SEQ) {
-                ACK_FLAG = true;
-                resendThread.join();
-                // update current seq
-                CURRENT_SEQ = (CURRENT_SEQ + 1) % 2;
-                // current send task finish
-                std::cout << "[ACK] : Package (SEQ:" << recvBuffer.ack << ") sent successfully!" << std::endl;
-                break;
-            }
-            // if ckecksum is not valid or ack is not for current seq, that means the packet sent just now was failed
-            // then wait for timeout to re-send the package
-            else {
-                std::cout << "[RE] : Client received failed. Wait for timeout to re-send" << std::endl;
-            }
-        } else {
-            std::cout << "[ERROR] : Package received from socket failed!" << std::endl;
-        }
+    logger.addLog("[SEND] : " + message2string(message));
+    // start timer
+    if(baseSeq == nextSeq) {
+        timer.start();
     }
+    // update nextSeq
+    nextSeq++;
 }
 
 /**
@@ -258,11 +317,13 @@ void destroyConnection() {
             serverPort,
             clientPort,
             0,
-            CURRENT_SEQ
+            nextSeq
     };
     msgSYN.setFIN();
     msgSYN.setLen(0);
     msgSYN.setChecksum(&sendPseudoHeader);
     sendPackage(msgSYN);
-    std::cout << "[LOG] Connection destroyed!" << std::endl;
+    while(!sendBuffer.empty()) {
+        // wait for send buffer to be flushed
+    }
 }

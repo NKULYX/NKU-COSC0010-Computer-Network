@@ -19,12 +19,12 @@ unsigned short serverPort = 8888;
 
 struct PseudoHeader sendPseudoHeader{};
 struct PseudoHeader recvPseudoHeader{};
-bool ACK_FLAG = false;
-int CURRENT_SEQ = 0;
+int CUM_ACK = 8;
+int EXPECT_SEQ = 0;
 int exitTime = 0;
 bool beginWait = false;
 
-std::string fileDir = "../test/3-1";
+std::string fileDir = "../test/3-2";
 
 bool initConnection();
 [[noreturn]] void beginRecv();
@@ -107,12 +107,19 @@ bool initConnection() {
     unsigned int fileSize;
     unsigned int currentSize = 0;
     std::string filename;
+    // cumulative ACK
+    int ackNum = 0;
     while(true) {
         int serverAddressLength = sizeof(SOCKADDR);
         int recvLength = recvfrom(clientSocket, (char*) &recvBuffer, sizeof(struct Message), 0, (struct sockaddr *) &serverAddress, &serverAddressLength);
         if(recvLength > 0) {
+            std::cout << "[RECV] : ";
             printMessage(recvBuffer);
-            if(recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.seq == CURRENT_SEQ) {
+            if(recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.seq == EXPECT_SEQ) {
+                // update current seq
+                EXPECT_SEQ += 1;
+                // update cumulative ACK
+                ackNum += 1;
                 // if message is SYN
                 if(recvBuffer.isSYN()) {
                     if(!randomLoss()) {
@@ -151,22 +158,26 @@ bool initConnection() {
                         }
                     }
                     // send ACK to server
-                    if(!randomLoss()){
-                        sendACK(recvBuffer.seq);
+                    if(ackNum >= CUM_ACK) {
+                        if(!randomLoss()){
+                            sendACK(recvBuffer.seq);
+                        }
+                        ackNum = 0;
                     }
                 }
-                // update current seq
-                CURRENT_SEQ = (CURRENT_SEQ + 1) % 2;
             }
             // if package is not valid or receive seq is not equal to current seq
             // need to send last ACK again
             else {
                 if(!randomLoss()) {
                     if(recvBuffer.isSYN()) {
-                        sendACKSYN((CURRENT_SEQ + 1) % 2);
+                        sendACKSYN(EXPECT_SEQ - 1);
+                    }
+                    else if(recvBuffer.isFIN()) {
+                        sendACKFIN(EXPECT_SEQ - 1);
                     }
                     else {
-                        sendACK((CURRENT_SEQ + 1) % 2);
+                        sendACK(EXPECT_SEQ - 1);
                     }
                 }
             }
@@ -181,7 +192,7 @@ void waitExit() {
             while(true) {
                 Sleep(1);
                 exitTime++;
-                if(exitTime >= 2 * RTO) {
+                if(exitTime >= 3 * RTO) {
                     // cleanup resources
                     closesocket(clientSocket);
                     WSACleanup();
@@ -189,7 +200,7 @@ void waitExit() {
                 }
             }
         });
-        thread.join();
+        thread.detach();
     }
 }
 
@@ -199,12 +210,14 @@ void sendACK(int ackNum) {
             clientPort,
             serverPort,
             ackNum,
-            CURRENT_SEQ
+            EXPECT_SEQ
     };
     sendBuffer.setACK();
     sendBuffer.setLen(0);
     sendBuffer.setChecksum(&sendPseudoHeader);
     sendto(clientSocket, (char*) &sendBuffer, sizeof(struct Message), 0, (struct sockaddr *) &serverAddress, sizeof(SOCKADDR));
+    std::cout << "[SEND] : ";
+    printMessage(sendBuffer);
 }
 
 void sendACKSYN(int ackNum) {
@@ -213,13 +226,15 @@ void sendACKSYN(int ackNum) {
             clientPort,
             serverPort,
             ackNum,
-            CURRENT_SEQ
+            EXPECT_SEQ
     };
     sendBuffer.setACK();
     sendBuffer.setSYN();
     sendBuffer.setLen(0);
     sendBuffer.setChecksum(&sendPseudoHeader);
     sendto(clientSocket, (char*) &sendBuffer, sizeof(struct Message), 0, (struct sockaddr *) &serverAddress, sizeof(SOCKADDR));
+    std::cout << "[SEND] : ";
+    printMessage(sendBuffer);
 }
 
 void sendACKFIN(int ackNum) {
@@ -228,11 +243,13 @@ void sendACKFIN(int ackNum) {
             clientPort,
             serverPort,
             ackNum,
-            CURRENT_SEQ
+            EXPECT_SEQ
     };
     sendBuffer.setACK();
     sendBuffer.setFIN();
     sendBuffer.setLen(0);
     sendBuffer.setChecksum(&sendPseudoHeader);
     sendto(clientSocket, (char*) &sendBuffer, sizeof(struct Message), 0, (struct sockaddr *) &serverAddress, sizeof(SOCKADDR));
+    std::cout << "[SEND] : ";
+    printMessage(sendBuffer);
 }

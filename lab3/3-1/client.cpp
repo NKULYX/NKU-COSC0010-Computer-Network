@@ -20,7 +20,7 @@ unsigned short serverPort = 8888;
 struct PseudoHeader sendPseudoHeader{};
 struct PseudoHeader recvPseudoHeader{};
 bool ACK_FLAG = false;
-int CURRENT_SEQ = 0;
+int EXPECT_SEQ = 0;
 int exitTime = 0;
 bool beginWait = false;
 
@@ -112,7 +112,7 @@ bool initConnection() {
         int recvLength = recvfrom(clientSocket, (char*) &recvBuffer, sizeof(struct Message), 0, (struct sockaddr *) &serverAddress, &serverAddressLength);
         if(recvLength > 0) {
             printMessage(recvBuffer);
-            if(recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.seq == CURRENT_SEQ) {
+            if(recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.seq == EXPECT_SEQ) {
                 // if message is SYN
                 if(recvBuffer.isSYN()) {
                     if(!randomLoss()) {
@@ -156,17 +156,17 @@ bool initConnection() {
                     }
                 }
                 // update current seq
-                CURRENT_SEQ = (CURRENT_SEQ + 1) % 2;
+                EXPECT_SEQ = (EXPECT_SEQ + 1) % 2;
             }
             // if package is not valid or receive seq is not equal to current seq
             // need to send last ACK again
             else {
                 if(!randomLoss()) {
                     if(recvBuffer.isSYN()) {
-                        sendACKSYN((CURRENT_SEQ + 1) % 2);
+                        sendACKSYN((EXPECT_SEQ + 1) % 2);
                     }
                     else {
-                        sendACK((CURRENT_SEQ + 1) % 2);
+                        sendACK((EXPECT_SEQ + 1) % 2);
                     }
                 }
             }
@@ -199,7 +199,7 @@ void sendACK(int ackNum) {
             clientPort,
             serverPort,
             ackNum,
-            CURRENT_SEQ
+            EXPECT_SEQ
     };
     sendBuffer.setACK();
     sendBuffer.setLen(0);
@@ -213,7 +213,7 @@ void sendACKSYN(int ackNum) {
             clientPort,
             serverPort,
             ackNum,
-            CURRENT_SEQ
+            EXPECT_SEQ
     };
     sendBuffer.setACK();
     sendBuffer.setSYN();
@@ -228,7 +228,7 @@ void sendACKFIN(int ackNum) {
             clientPort,
             serverPort,
             ackNum,
-            CURRENT_SEQ
+            EXPECT_SEQ
     };
     sendBuffer.setACK();
     sendBuffer.setFIN();
