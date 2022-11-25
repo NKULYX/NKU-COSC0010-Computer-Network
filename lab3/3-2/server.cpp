@@ -37,6 +37,7 @@ void sendFiles();
 void sendFile(struct FileDescriptor file);
 void sendPackage(struct Message message);
 void destroyConnection();
+std::string windowState();
 
 
 int main(){
@@ -158,6 +159,7 @@ void beginRecv() {
                     }
                     // update baseSeq
                     baseSeq = recvBuffer.ack + 1 > baseSeq ? recvBuffer.ack + 1 : baseSeq;
+                    logger.addLog(windowState());
                     // check whether to reset timer
                     if(baseSeq == nextSeq) {
                         timer.stop();
@@ -295,6 +297,7 @@ void sendPackage(struct Message message) {
     // add to the send buffer
     std::lock_guard<std::mutex> lockGuard(bufferMutex);
     sendBuffer.push_back(message);
+    logger.addLog(windowState());
     // send package
     if(!randomLoss()){
         sendto(serverSocket, (char*) &message, sizeof(struct Message), 0, (struct sockaddr*) &clientAddress, sizeof(SOCKADDR));
@@ -326,4 +329,10 @@ void destroyConnection() {
     while(!sendBuffer.empty()) {
         // wait for send buffer to be flushed
     }
+}
+
+std::string windowState() {
+    return "[WIN-STATE] : { [size:" + std::to_string(sendBuffer.size()) + "] [begin:"
+            + std::to_string(baseSeq) + "] [end:"
+            + std::to_string(nextSeq) + "] }";
 }
