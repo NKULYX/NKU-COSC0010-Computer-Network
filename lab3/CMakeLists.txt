@@ -16,4 +16,6 @@ add_executable(client_3_1 3-1/client.cpp)
 add_executable(server_3_1 3-1/server.cpp)
 add_executable(client_3_2 3-2/client.cpp)
 add_executable(server_3_2 3-2/server.cpp)
+add_executable(client_3_3 3-3/client.cpp)
+add_executable(server_3_3 3-3/server.cpp)
 
