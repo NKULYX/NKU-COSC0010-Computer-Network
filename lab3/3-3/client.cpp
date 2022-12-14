@@ -19,12 +19,11 @@ unsigned short serverPort = 8888;
 
 struct PseudoHeader sendPseudoHeader{};
 struct PseudoHeader recvPseudoHeader{};
-int CUM_ACK = 8;
 int EXPECT_SEQ = 0;
 int exitTime = 0;
 bool beginWait = false;
 
-std::string fileDir = "../test/3-2";
+std::string fileDir = "../test/3-3";
 
 bool initConnection();
 [[noreturn]] void beginRecv();
@@ -107,8 +106,6 @@ bool initConnection() {
     unsigned int fileSize;
     unsigned int currentSize = 0;
     std::string filename;
-    // cumulative ACK
-    int ackNum = 0;
     while(true) {
         int serverAddressLength = sizeof(SOCKADDR);
         int recvLength = recvfrom(clientSocket, (char*) &recvBuffer, sizeof(struct Message), 0, (struct sockaddr *) &serverAddress, &serverAddressLength);
@@ -118,23 +115,17 @@ bool initConnection() {
             if(recvBuffer.checksumValid(&recvPseudoHeader) && recvBuffer.seq == EXPECT_SEQ) {
                 // update current seq
                 EXPECT_SEQ += 1;
-                // update cumulative ACK
-                ackNum += 1;
                 // if message is SYN
                 if(recvBuffer.isSYN()) {
-                    if(!randomLoss()) {
-                        sendACKSYN(recvBuffer.seq);
-                    }
+                    sendACKSYN(recvBuffer.seq);
                 }
-                // if message is FIN
+                    // if message is FIN
                 else if(recvBuffer.isFIN()) {
-                    if(!randomLoss()) {
-                        sendACKFIN(recvBuffer.seq);
-                    }
+                    sendACKFIN(recvBuffer.seq);
                     exitTime = 0;
                     waitExit();
                 }
-                // if message contains data
+                    // if message contains data
                 else {
                     // if message contains file header
                     if(recvBuffer.isFHD()) {
@@ -158,27 +149,20 @@ bool initConnection() {
                         }
                     }
                     // send ACK to server
-                    if(ackNum >= CUM_ACK) {
-                        if(!randomLoss()){
-                            sendACK(recvBuffer.seq);
-                        }
-                        ackNum = 0;
-                    }
+                    sendACK(recvBuffer.seq);
                 }
             }
-            // if package is not valid or receive seq is not equal to current seq
-            // need to send last ACK again
+                // if package is not valid or receive seq is not equal to current seq
+                // need to send last ACK again
             else {
-                if(!randomLoss()) {
-                    if(recvBuffer.isSYN()) {
-                        sendACKSYN(EXPECT_SEQ - 1);
-                    }
-                    else if(recvBuffer.isFIN()) {
-                        sendACKFIN(EXPECT_SEQ - 1);
-                    }
-                    else {
-                        sendACK(EXPECT_SEQ - 1);
-                    }
+                if(recvBuffer.isSYN()) {
+                    sendACKSYN(EXPECT_SEQ - 1);
+                }
+                else if(recvBuffer.isFIN()) {
+                    sendACKFIN(EXPECT_SEQ - 1);
+                }
+                else {
+                    sendACK(EXPECT_SEQ - 1);
                 }
             }
         }

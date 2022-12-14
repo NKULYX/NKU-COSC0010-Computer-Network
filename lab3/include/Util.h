@@ -14,7 +14,7 @@
 #include <winsock.h>
 
 const int MSS = 1024;
-const int LOSS_RATE = 1;
+const int LOSS_RATE = 2;
 const int RTO = 50;
 
 std::mutex m;
